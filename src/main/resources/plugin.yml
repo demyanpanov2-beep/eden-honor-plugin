@@ -1,0 +1,16 @@
+name: EdenHonor
+version: 1.0.0
+main: ru.edenworld.edenhonor.EdenHonorPlugin
+api-version: '1.21'
+authors: [OpenAI]
+description: Honor / PK indicator system for Purpur with TAB support through PlaceholderAPI.
+softdepend: [PlaceholderAPI, TAB]
+commands:
+  honor:
+    description: Показывает статус честности игрока и админ-команды.
+    usage: /honor [status <player>|pardon <player>|wipe <player|all>|reload]
+permissions:
+  edenhonor.use:
+    default: true
+  edenhonor.admin:
+    default: op

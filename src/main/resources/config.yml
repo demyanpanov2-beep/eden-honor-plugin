@@ -1,0 +1,37 @@
+window-hours: 96
+orange-damage-threshold: 300.0
+last-aggressor-seconds: 20
+autosave-seconds: 300
+
+ignored-worlds:
+  - duel_world
+  - event_world
+
+chat:
+  enabled: true
+  format: '<name> <indicator><gray>: </gray><message>'
+
+indicators:
+  green: '&a●'
+  orange: '&6●'
+  red: '&c●'
+
+status-text:
+  green: '&aЗелёный'
+  orange: '&6Оранжевый'
+  red: '&cКрасный'
+
+messages:
+  prefix: '&8[&dEdenHonor&8] &7'
+  no-permission: '&cУ тебя нет прав.'
+  player-only: '&cЭту команду может использовать только игрок.'
+  unknown-player: '&cИгрок не найден.'
+  reloaded: '&aКонфиг и данные перезагружены.'
+  pardon-done: '&aСтатус игрока очищен.'
+  wipe-one: '&aИстория игрока очищена.'
+  wipe-all: '&aИстория всех игроков очищена.'
+  status-line-1: '&fСтатус: %status_text% %indicator%'
+  status-line-2: '&fУрон за окно: &6%damage%'
+  status-line-3: '&fАктивных убийств за окно: &c%kills%'
+  status-line-4: '&fДо зелёного: &b%timeleft%'
+  status-line-5: '&fПоследняя причина красного: &e%reason%'
