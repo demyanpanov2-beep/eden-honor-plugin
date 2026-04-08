@@ -9,6 +9,8 @@ public final class PlayerHonorData {
 
     private final List<DamageEntry> damageEntries = new ArrayList<>();
     private final List<KillEntry> killEntries = new ArrayList<>();
+    private long forcedBlackUntil;
+    private long lastBlackDeathTimestamp;
 
     public List<DamageEntry> getDamageEntries() {
         return damageEntries;
@@ -16,6 +18,22 @@ public final class PlayerHonorData {
 
     public List<KillEntry> getKillEntries() {
         return killEntries;
+    }
+
+    public long getForcedBlackUntil() {
+        return forcedBlackUntil;
+    }
+
+    public void setForcedBlackUntil(long forcedBlackUntil) {
+        this.forcedBlackUntil = forcedBlackUntil;
+    }
+
+    public long getLastBlackDeathTimestamp() {
+        return lastBlackDeathTimestamp;
+    }
+
+    public void setLastBlackDeathTimestamp(long lastBlackDeathTimestamp) {
+        this.lastBlackDeathTimestamp = lastBlackDeathTimestamp;
     }
 
     public void prune(long cutoff) {
@@ -45,5 +63,14 @@ public final class PlayerHonorData {
     public void clearAll() {
         damageEntries.clear();
         killEntries.clear();
+        forcedBlackUntil = 0L;
+        lastBlackDeathTimestamp = 0L;
+    }
+
+    public boolean hasPersistentState() {
+        return !damageEntries.isEmpty()
+                || !killEntries.isEmpty()
+                || forcedBlackUntil > 0L
+                || lastBlackDeathTimestamp > 0L;
     }
 }

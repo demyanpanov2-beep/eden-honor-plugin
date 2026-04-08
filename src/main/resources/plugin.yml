@@ -1,5 +1,5 @@
 name: EdenHonor
-version: 1.0.0
+version: 1.1.0
 main: ru.edenworld.edenhonor.EdenHonorPlugin
 api-version: '1.21'
 authors: [OpenAI]
@@ -8,7 +8,7 @@ softdepend: [PlaceholderAPI, TAB]
 commands:
   honor:
     description: Показывает статус честности игрока и админ-команды.
-    usage: /honor [status <player>|pardon <player>|wipe <player|all>|reload]
+    usage: /honor [status <player>|interface|pardon <player>|wipe <player|all>|reload]
 permissions:
   edenhonor.use:
     default: true

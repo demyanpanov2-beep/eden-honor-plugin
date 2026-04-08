@@ -50,17 +50,23 @@ public final class EdenHonorExpansion extends PlaceholderExpansion {
             return "";
         }
 
+        HonorStatus status = honorService.getStatus(player.getUniqueId());
         return switch (params.toLowerCase(Locale.ROOT)) {
             case "indicator" -> honorService.getIndicator(player.getUniqueId());
-            case "status" -> honorService.getStatus(player.getUniqueId()).name();
+            case "status" -> status.name();
             case "status_text" -> honorService.getStatusText(player.getUniqueId());
             case "damage" -> honorService.formatDamage(honorService.getRecentDamage(player.getUniqueId()));
             case "kills" -> Integer.toString(honorService.getRecentKillCount(player.getUniqueId()));
-            case "timeleft" -> honorService.getTimeLeft(player.getUniqueId());
+            case "timeleft", "time_to_peaceful" -> honorService.getTimeLeft(player.getUniqueId());
+            case "time_to_white" -> honorService.getTimeUntilWhite(player.getUniqueId());
+            case "damage_to_yellow" -> honorService.formatDamage(honorService.getDamageUntilYellow(player.getUniqueId()));
+            case "black_last_kill_ago" -> honorService.getBlackLastKillAgo(player.getUniqueId());
             case "reason" -> honorService.getLatestReasonText(player.getUniqueId());
-            case "is_red" -> honorService.getStatus(player.getUniqueId()) == HonorStatus.RED ? "true" : "false";
-            case "is_orange" -> honorService.getStatus(player.getUniqueId()) == HonorStatus.ORANGE ? "true" : "false";
-            case "is_green" -> honorService.getStatus(player.getUniqueId()) == HonorStatus.GREEN ? "true" : "false";
+            case "is_black" -> status == HonorStatus.BLACK ? "true" : "false";
+            case "is_red" -> status == HonorStatus.RED ? "true" : "false";
+            case "is_yellow", "is_orange" -> status == HonorStatus.YELLOW ? "true" : "false";
+            case "is_green" -> status == HonorStatus.GREEN ? "true" : "false";
+            case "is_white" -> status == HonorStatus.WHITE ? "true" : "false";
             default -> null;
         };
     }

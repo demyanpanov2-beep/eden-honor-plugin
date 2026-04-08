@@ -3,10 +3,8 @@ package ru.edenworld.edenhonor.command;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Stream;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
@@ -15,6 +13,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import ru.edenworld.edenhonor.EdenHonorPlugin;
+import ru.edenworld.edenhonor.menu.HonorStatsMenu;
 import ru.edenworld.edenhonor.service.HonorService;
 import ru.edenworld.edenhonor.util.TextUtil;
 
@@ -52,6 +51,18 @@ public final class HonorCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 showStatus(sender, target.getUniqueId(), target.getName() == null ? args[1] : target.getName());
+                return true;
+            }
+            case "interface", "gui" -> {
+                if (!sender.hasPermission("edenhonor.admin")) {
+                    sendMessage(sender, plugin.getConfig().getString("messages.no-permission", "&cУ тебя нет прав."));
+                    return true;
+                }
+                if (!(sender instanceof Player player)) {
+                    sendMessage(sender, plugin.getConfig().getString("messages.player-only", "&cЭту команду может использовать только игрок."));
+                    return true;
+                }
+                player.openInventory(new HonorStatsMenu(plugin, honorService, 0).getInventory());
                 return true;
             }
             case "pardon" -> {
@@ -100,7 +111,7 @@ public final class HonorCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             default -> {
-                sendRaw(sender, "&cИспользование: /honor [status <player>|pardon <player>|wipe <player|all>|reload]");
+                sendRaw(sender, "&cИспользование: /honor [status <player>|interface|pardon <player>|wipe <player|all>|reload]");
                 return true;
             }
         }
@@ -129,7 +140,7 @@ public final class HonorCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             List<String> base = new ArrayList<>(List.of("status"));
             if (sender.hasPermission("edenhonor.admin")) {
-                base.addAll(List.of("pardon", "wipe", "reload"));
+                base.addAll(List.of("interface", "gui", "pardon", "wipe", "reload"));
             }
             return base.stream()
                     .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))

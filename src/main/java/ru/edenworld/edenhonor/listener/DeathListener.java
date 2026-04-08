@@ -40,11 +40,22 @@ public final class DeathListener implements Listener {
             return;
         }
 
-        boolean victimWasRed = honorService.isRed(victim.getUniqueId());
+        boolean victimWasBlack = honorService.isBlack(victim.getUniqueId());
+        boolean victimWasOutlaw = honorService.isOutlaw(victim.getUniqueId());
+        boolean blackKilledRecently = victimWasBlack && honorService.wasBlackKilledRecently(victim.getUniqueId());
+
         honorService.recordKill(
                 killer.getUniqueId(),
                 victim.getUniqueId(),
-                victimWasRed ? KillReason.RETALIATION : KillReason.CRIMINAL
+                victimWasOutlaw ? KillReason.RETALIATION : KillReason.CRIMINAL
         );
+
+        if (blackKilledRecently) {
+            honorService.forceBlack(killer.getUniqueId());
+        }
+
+        if (victimWasBlack) {
+            honorService.recordBlackDeath(victim.getUniqueId());
+        }
     }
 }

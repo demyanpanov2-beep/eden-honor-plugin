@@ -1,5 +1,8 @@
 window-hours: 96
-orange-damage-threshold: 300.0
+white-damage-threshold: 5.0
+yellow-damage-threshold: 450.0
+black-kill-threshold: 3
+black-victim-chain-hours: 24
 last-aggressor-seconds: 20
 autosave-seconds: 300
 
@@ -12,14 +15,18 @@ chat:
   format: '<name> <indicator><gray>: </gray><message>'
 
 indicators:
+  white: '&f●'
   green: '&a●'
-  orange: '&6●'
+  yellow: '&e●'
   red: '&c●'
+  black: '&0●'
 
 status-text:
-  green: '&aЗелёный'
-  orange: '&6Оранжевый'
-  red: '&cКрасный'
+  white: '&fБелая'
+  green: '&aЗелёная'
+  yellow: '&eЖёлтая'
+  red: '&cКрасная'
+  black: '&0Чёрная'
 
 messages:
   prefix: '&8[&dEdenHonor&8] &7'
@@ -30,8 +37,12 @@ messages:
   pardon-done: '&aСтатус игрока очищен.'
   wipe-one: '&aИстория игрока очищена.'
   wipe-all: '&aИстория всех игроков очищена.'
+  trade-blocked: '&cЖители отказываются торговать с игроками с красной и чёрной меткой.'
   status-line-1: '&fСтатус: %status_text% %indicator%'
   status-line-2: '&fУрон за окно: &6%damage%'
   status-line-3: '&fАктивных убийств за окно: &c%kills%'
-  status-line-4: '&fДо зелёного: &b%timeleft%'
-  status-line-5: '&fПоследняя причина красного: &e%reason%'
+  status-line-peaceful: '&fДо жёлтой метки: &e%damage_to_yellow%'
+  status-line-hostile-1: '&fДо зелёной/белой метки: &b%timeleft%'
+  status-line-hostile-2: '&fДо белой метки: &f%white_time%'
+  status-line-black: '&fС последнего убийства прошло: &8%black_last_kill_ago%'
+  status-line-reason: '&fПоследняя причина убийства: &e%reason%'

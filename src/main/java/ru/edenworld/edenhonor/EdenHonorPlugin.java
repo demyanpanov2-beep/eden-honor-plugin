@@ -7,6 +7,8 @@ import ru.edenworld.edenhonor.command.HonorCommand;
 import ru.edenworld.edenhonor.listener.ChatListener;
 import ru.edenworld.edenhonor.listener.CombatListener;
 import ru.edenworld.edenhonor.listener.DeathListener;
+import ru.edenworld.edenhonor.listener.HonorMenuListener;
+import ru.edenworld.edenhonor.listener.VillagerTradeListener;
 import ru.edenworld.edenhonor.placeholder.EdenHonorExpansion;
 import ru.edenworld.edenhonor.service.HonorService;
 
@@ -25,6 +27,8 @@ public final class EdenHonorPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new CombatListener(this, honorService), this);
         Bukkit.getPluginManager().registerEvents(new DeathListener(this, honorService), this);
         Bukkit.getPluginManager().registerEvents(new ChatListener(this, honorService), this);
+        Bukkit.getPluginManager().registerEvents(new VillagerTradeListener(this, honorService), this);
+        Bukkit.getPluginManager().registerEvents(new HonorMenuListener(this, honorService), this);
 
         HonorCommand command = new HonorCommand(this, honorService);
         Objects.requireNonNull(getCommand("honor"), "Command honor missing in plugin.yml")

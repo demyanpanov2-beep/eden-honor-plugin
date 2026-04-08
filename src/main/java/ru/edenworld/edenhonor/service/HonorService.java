@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -81,6 +82,8 @@ public final class HonorService {
                         plugin.getLogger().warning("Пропущена битая kill-запись для " + key + ": " + encoded);
                     }
                 }
+                data.setForcedBlackUntil(section.getLong("forced-black-until", 0L));
+                data.setLastBlackDeathTimestamp(section.getLong("last-black-death-timestamp", 0L));
                 playerData.put(uuid, data);
             } catch (IllegalArgumentException ignored) {
                 plugin.getLogger().warning("Пропущен некорректный UUID в data.yml: " + key);
@@ -100,7 +103,7 @@ public final class HonorService {
         for (Map.Entry<UUID, PlayerHonorData> entry : playerData.entrySet()) {
             UUID uuid = entry.getKey();
             PlayerHonorData data = entry.getValue();
-            if (data.getDamageEntries().isEmpty() && data.getKillEntries().isEmpty()) {
+            if (!data.hasPersistentState()) {
                 continue;
             }
 
@@ -111,6 +114,8 @@ public final class HonorService {
             configuration.set(basePath + ".kills", data.getKillEntries().stream()
                     .map(KillEntry::serialize)
                     .toList());
+            configuration.set(basePath + ".forced-black-until", data.getForcedBlackUntil());
+            configuration.set(basePath + ".last-black-death-timestamp", data.getLastBlackDeathTimestamp());
         }
 
         try {
@@ -122,10 +127,21 @@ public final class HonorService {
 
     public synchronized void pruneAll() {
         long cutoff = getCutoffTimestamp();
-        playerData.values().forEach(data -> data.prune(cutoff));
-        playerData.entrySet().removeIf(entry -> entry.getValue().getDamageEntries().isEmpty() && entry.getValue().getKillEntries().isEmpty());
+        long now = System.currentTimeMillis();
+        long blackVictimCutoff = now - getBlackVictimChainMillis();
 
-        long aggressorCutoff = System.currentTimeMillis() - (getLastAggressorSeconds() * 1000L);
+        playerData.values().forEach(data -> {
+            data.prune(cutoff);
+            if (data.getForcedBlackUntil() <= now) {
+                data.setForcedBlackUntil(0L);
+            }
+            if (data.getLastBlackDeathTimestamp() < blackVictimCutoff) {
+                data.setLastBlackDeathTimestamp(0L);
+            }
+        });
+        playerData.entrySet().removeIf(entry -> !entry.getValue().hasPersistentState());
+
+        long aggressorCutoff = now - (getLastAggressorSeconds() * 1000L);
         lastAggressors.entrySet().removeIf(entry -> entry.getValue().timestamp() < aggressorCutoff);
     }
 
@@ -133,7 +149,7 @@ public final class HonorService {
         if (attacker.equals(victim) || finalDamage <= 0D) {
             return;
         }
-        PlayerHonorData data = playerData.computeIfAbsent(attacker, ignored -> new PlayerHonorData());
+        PlayerHonorData data = getOrCreate(attacker);
         data.getDamageEntries().add(new DamageEntry(System.currentTimeMillis(), victim, finalDamage));
     }
 
@@ -160,19 +176,40 @@ public final class HonorService {
         if (killer.equals(victim)) {
             return;
         }
-        PlayerHonorData data = playerData.computeIfAbsent(killer, ignored -> new PlayerHonorData());
+        PlayerHonorData data = getOrCreate(killer);
         data.getKillEntries().add(new KillEntry(System.currentTimeMillis(), victim, reason));
     }
 
-    public synchronized HonorStatus getStatus(UUID playerId) {
-        PlayerHonorData data = getData(playerId);
-        data.prune(getCutoffTimestamp());
+    public synchronized void forceBlack(UUID playerId) {
+        long forcedUntil = System.currentTimeMillis() + getWindowMillis();
+        PlayerHonorData data = getOrCreate(playerId);
+        data.setForcedBlackUntil(Math.max(data.getForcedBlackUntil(), forcedUntil));
+    }
 
+    public synchronized void recordBlackDeath(UUID playerId) {
+        getOrCreate(playerId).setLastBlackDeathTimestamp(System.currentTimeMillis());
+    }
+
+    public synchronized boolean wasBlackKilledRecently(UUID playerId) {
+        long lastKill = getData(playerId).getLastBlackDeathTimestamp();
+        return lastKill > 0L && (System.currentTimeMillis() - lastKill) < getBlackVictimChainMillis();
+    }
+
+    public synchronized HonorStatus getStatus(UUID playerId) {
+        PlayerHonorData data = getSnapshot(playerId);
+        if (isForcedBlack(data) || data.getActiveKillCount(getCutoffTimestamp()) >= getBlackKillThreshold()) {
+            return HonorStatus.BLACK;
+        }
         if (data.getActiveKillCount(getCutoffTimestamp()) > 0) {
             return HonorStatus.RED;
         }
-        if (data.getRecentDamage(getCutoffTimestamp()) >= getOrangeThreshold()) {
-            return HonorStatus.ORANGE;
+
+        double damage = data.getRecentDamage(getCutoffTimestamp());
+        if (damage >= getYellowThreshold()) {
+            return HonorStatus.YELLOW;
+        }
+        if (damage < getWhiteThreshold()) {
+            return HonorStatus.WHITE;
         }
         return HonorStatus.GREEN;
     }
@@ -181,20 +218,43 @@ public final class HonorService {
         return getStatus(playerId) == HonorStatus.RED;
     }
 
+    public synchronized boolean isBlack(UUID playerId) {
+        return getStatus(playerId) == HonorStatus.BLACK;
+    }
+
+    public synchronized boolean isOutlaw(UUID playerId) {
+        HonorStatus status = getStatus(playerId);
+        return status == HonorStatus.RED || status == HonorStatus.BLACK;
+    }
+
+    public synchronized boolean isPeaceful(UUID playerId) {
+        HonorStatus status = getStatus(playerId);
+        return status == HonorStatus.WHITE || status == HonorStatus.GREEN;
+    }
+
     public synchronized double getRecentDamage(UUID playerId) {
-        return getData(playerId).getRecentDamage(getCutoffTimestamp());
+        return getSnapshot(playerId).getRecentDamage(getCutoffTimestamp());
     }
 
     public synchronized int getRecentKillCount(UUID playerId) {
-        return getData(playerId).getActiveKillCount(getCutoffTimestamp());
+        return getSnapshot(playerId).getActiveKillCount(getCutoffTimestamp());
     }
 
     public synchronized String getIndicator(UUID playerId) {
-        return switch (getStatus(playerId)) {
-            case GREEN -> plugin.getConfig().getString("indicators.green", "&a●");
-            case ORANGE -> plugin.getConfig().getString("indicators.orange", "&6●");
-            case RED -> plugin.getConfig().getString("indicators.red", "&c●");
+        HonorStatus status = getStatus(playerId);
+        String key = status.name().toLowerCase(Locale.ROOT);
+        String fallback = switch (status) {
+            case WHITE -> "&f●";
+            case GREEN -> "&a●";
+            case YELLOW -> "&e●";
+            case RED -> "&c●";
+            case BLACK -> "&0●";
         };
+        String value = plugin.getConfig().getString("indicators." + key);
+        if (value == null && status == HonorStatus.YELLOW) {
+            value = plugin.getConfig().getString("indicators.orange");
+        }
+        return value == null ? fallback : value;
     }
 
     public Component getIndicatorComponent(UUID playerId) {
@@ -202,45 +262,78 @@ public final class HonorService {
     }
 
     public synchronized String getStatusText(UUID playerId) {
-        return switch (getStatus(playerId)) {
-            case GREEN -> plugin.getConfig().getString("status-text.green", "&aЗелёный");
-            case ORANGE -> plugin.getConfig().getString("status-text.orange", "&6Оранжевый");
-            case RED -> plugin.getConfig().getString("status-text.red", "&cКрасный");
+        HonorStatus status = getStatus(playerId);
+        String key = status.name().toLowerCase(Locale.ROOT);
+        String fallback = switch (status) {
+            case WHITE -> "&fБелая";
+            case GREEN -> "&aЗелёная";
+            case YELLOW -> "&eЖёлтая";
+            case RED -> "&cКрасная";
+            case BLACK -> "&0Чёрная";
         };
+        String value = plugin.getConfig().getString("status-text." + key);
+        if (value == null && status == HonorStatus.YELLOW) {
+            value = plugin.getConfig().getString("status-text.orange");
+        }
+        return value == null ? fallback : value;
     }
 
     public synchronized String getTimeLeft(UUID playerId) {
-        Optional<KillEntry> latestKill = getData(playerId).getLatestKill(getCutoffTimestamp());
-        if (latestKill.isEmpty()) {
-            return "0м";
-        }
-        long expiresAt = latestKill.get().timestamp() + getWindowMillis();
-        return DurationFormatter.formatMillis(expiresAt - System.currentTimeMillis());
+        return DurationFormatter.formatMillis(getTimeUntilPeacefulMillis(playerId));
+    }
+
+    public synchronized String getTimeUntilWhite(UUID playerId) {
+        return DurationFormatter.formatMillis(getTimeUntilWhiteMillis(playerId));
+    }
+
+    public synchronized double getDamageUntilYellow(UUID playerId) {
+        return Math.max(0D, getYellowThreshold() - getRecentDamage(playerId));
     }
 
     public synchronized String getLatestReasonText(UUID playerId) {
-        Optional<KillEntry> latestKill = getData(playerId).getLatestKill(getCutoffTimestamp());
+        Optional<KillEntry> latestKill = getSnapshot(playerId).getLatestKill(getCutoffTimestamp());
         if (latestKill.isEmpty()) {
             return "нет";
         }
         return switch (latestKill.get().reason()) {
             case CRIMINAL -> "убийство обычного игрока";
-            case RETALIATION -> "убийство красного игрока";
+            case RETALIATION -> "убийство красного/чёрного игрока";
         };
+    }
+
+    public synchronized String getBlackLastKillAgo(UUID playerId) {
+        Optional<KillEntry> latestKill = getSnapshot(playerId).getLatestKill(getCutoffTimestamp());
+        if (latestKill.isEmpty()) {
+            return "0м";
+        }
+        return DurationFormatter.formatMillis(System.currentTimeMillis() - latestKill.get().timestamp());
     }
 
     public synchronized List<String> getStatusLines(UUID playerId) {
         List<String> lines = new ArrayList<>();
+        HonorStatus status = getStatus(playerId);
+
         lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-1", "&fСтатус: %status_text% %indicator%"), playerId));
         lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-2", "&fУрон за окно: &6%damage%"), playerId));
         lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-3", "&fАктивных убийств за окно: &c%kills%"), playerId));
-        lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-4", "&fДо зелёного: &b%timeleft%"), playerId));
-        lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-5", "&fПоследняя причина красного: &e%reason%"), playerId));
+
+        if (status == HonorStatus.WHITE || status == HonorStatus.GREEN) {
+            lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-peaceful", "&fДо жёлтой метки: &e%damage_to_yellow%"), playerId));
+        } else {
+            lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-hostile-1", "&fДо зелёной/белой метки: &b%timeleft%"), playerId));
+            lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-hostile-2", "&fДо белой метки: &f%white_time%"), playerId));
+        }
+
+        if (status == HonorStatus.BLACK) {
+            lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-black", "&fС последнего убийства прошло: &8%black_last_kill_ago%"), playerId));
+        }
+
+        lines.add(replaceStatusTokens(plugin.getConfig().getString("messages.status-line-reason", "&fПоследняя причина убийства: &e%reason%"), playerId));
         return lines;
     }
 
     public synchronized void pardon(UUID playerId) {
-        playerData.computeIfAbsent(playerId, ignored -> new PlayerHonorData()).clearAll();
+        getOrCreate(playerId).clearAll();
     }
 
     public synchronized void wipeAll() {
@@ -270,8 +363,24 @@ public final class HonorService {
         return Math.max(5L, plugin.getConfig().getLong("last-aggressor-seconds", 20L));
     }
 
-    public double getOrangeThreshold() {
-        return Math.max(1D, plugin.getConfig().getDouble("orange-damage-threshold", 300D));
+    public double getWhiteThreshold() {
+        return Math.max(0D, plugin.getConfig().getDouble("white-damage-threshold", 5D));
+    }
+
+    public double getYellowThreshold() {
+        if (plugin.getConfig().contains("yellow-damage-threshold")) {
+            return Math.max(1D, plugin.getConfig().getDouble("yellow-damage-threshold", 450D));
+        }
+        return Math.max(1D, plugin.getConfig().getDouble("orange-damage-threshold", 450D));
+    }
+
+    public int getBlackKillThreshold() {
+        return Math.max(2, plugin.getConfig().getInt("black-kill-threshold", 3));
+    }
+
+    public long getBlackVictimChainMillis() {
+        long hours = Math.max(1L, plugin.getConfig().getLong("black-victim-chain-hours", 24L));
+        return hours * 60L * 60L * 1000L;
     }
 
     public synchronized Collection<UUID> getKnownPlayers() {
@@ -295,8 +404,97 @@ public final class HonorService {
         return playerData.getOrDefault(playerId, new PlayerHonorData());
     }
 
+    private PlayerHonorData getSnapshot(UUID playerId) {
+        PlayerHonorData source = getData(playerId);
+        PlayerHonorData copy = new PlayerHonorData();
+        copy.getDamageEntries().addAll(source.getDamageEntries());
+        copy.getKillEntries().addAll(source.getKillEntries());
+        copy.setForcedBlackUntil(source.getForcedBlackUntil());
+        copy.setLastBlackDeathTimestamp(source.getLastBlackDeathTimestamp());
+        copy.prune(getCutoffTimestamp());
+        long now = System.currentTimeMillis();
+        if (copy.getForcedBlackUntil() <= now) {
+            copy.setForcedBlackUntil(0L);
+        }
+        if (copy.getLastBlackDeathTimestamp() < now - getBlackVictimChainMillis()) {
+            copy.setLastBlackDeathTimestamp(0L);
+        }
+        return copy;
+    }
+
+    private boolean isForcedBlack(PlayerHonorData data) {
+        return data.getForcedBlackUntil() > System.currentTimeMillis();
+    }
+
     private long getCutoffTimestamp() {
         return System.currentTimeMillis() - getWindowMillis();
+    }
+
+    private long getTimeUntilPeacefulMillis(UUID playerId) {
+        PlayerHonorData data = getSnapshot(playerId);
+        return Math.max(
+                getTimeUntilKillsClearMillis(data),
+                Math.max(
+                        getTimeUntilDamageBelowMillis(data, getYellowThreshold()),
+                        getTimeUntilForcedBlackEndsMillis(data)
+                )
+        );
+    }
+
+    private long getTimeUntilWhiteMillis(UUID playerId) {
+        PlayerHonorData data = getSnapshot(playerId);
+        return Math.max(
+                getTimeUntilKillsClearMillis(data),
+                Math.max(
+                        getTimeUntilDamageBelowMillis(data, getWhiteThreshold()),
+                        getTimeUntilForcedBlackEndsMillis(data)
+                )
+        );
+    }
+
+    private long getTimeUntilForcedBlackEndsMillis(PlayerHonorData data) {
+        return Math.max(0L, data.getForcedBlackUntil() - System.currentTimeMillis());
+    }
+
+    private long getTimeUntilKillsClearMillis(PlayerHonorData data) {
+        long cutoff = getCutoffTimestamp();
+        OptionalLong latestExpiry = data.getKillEntries().stream()
+                .filter(entry -> entry.timestamp() >= cutoff)
+                .mapToLong(entry -> entry.timestamp() + getWindowMillis())
+                .max();
+        return latestExpiry.isPresent() ? Math.max(0L, latestExpiry.getAsLong() - System.currentTimeMillis()) : 0L;
+    }
+
+    private long getTimeUntilDamageBelowMillis(PlayerHonorData data, double threshold) {
+        if (threshold <= 0D) {
+            return 0L;
+        }
+
+        long cutoff = getCutoffTimestamp();
+        List<DamageEntry> activeEntries = data.getDamageEntries().stream()
+                .filter(entry -> entry.timestamp() >= cutoff)
+                .sorted(Comparator.comparingLong(entry -> entry.timestamp() + getWindowMillis()))
+                .toList();
+
+        double currentDamage = activeEntries.stream()
+                .mapToDouble(DamageEntry::finalDamage)
+                .sum();
+
+        if (currentDamage < threshold) {
+            return 0L;
+        }
+
+        double rollingDamage = currentDamage;
+        long now = System.currentTimeMillis();
+        for (DamageEntry entry : activeEntries) {
+            rollingDamage -= entry.finalDamage();
+            if (rollingDamage < threshold) {
+                long expiresAt = entry.timestamp() + getWindowMillis();
+                return Math.max(0L, expiresAt - now);
+            }
+        }
+
+        return 0L;
     }
 
     private String replaceStatusTokens(String template, UUID playerId) {
@@ -306,6 +504,9 @@ public final class HonorService {
                 .replace("%damage%", formatDamage(getRecentDamage(playerId)))
                 .replace("%kills%", Integer.toString(getRecentKillCount(playerId)))
                 .replace("%timeleft%", getTimeLeft(playerId))
-                .replace("%reason%", getLatestReasonText(playerId));
+                .replace("%white_time%", getTimeUntilWhite(playerId))
+                .replace("%reason%", getLatestReasonText(playerId))
+                .replace("%damage_to_yellow%", formatDamage(getDamageUntilYellow(playerId)))
+                .replace("%black_last_kill_ago%", getBlackLastKillAgo(playerId));
     }
 }
